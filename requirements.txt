@@ -1,0 +1,10 @@
+requests>=2.31.0
+python-dotenv>=1.0.0
+Pillow>=10.0.0
+cairosvg>=2.7.0
+
+# 安装命令（项目根目录运行）：
+#   pip install -r requirements.txt
+#
+# macOS 专有依赖（cairosvg 需要系统 Cairo 库）：
+#   brew install cairo pango gdk-pixbuf libffi
