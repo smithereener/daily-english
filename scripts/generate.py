@@ -113,16 +113,16 @@ WORKPLACE_SCENARIOS: list[dict[str, str]] = [
      "desc": "讨论技术方案时的专业表达"},
     {"zh": "生产事故处理", "en": "Incident Response",
      "desc": "线上故障时的紧急沟通话术"},
-    # 轻松话题（3:1 比例，调节节奏）
-    {"zh": "办公室闲聊", "en": "Water Cooler Chat",
-     "desc": "茶水间、电梯里的日常闲聊话题和表达"},
-    {"zh": "入职第一天", "en": "First Day Onboarding",
-     "desc": "新公司第一天如何自我介绍、熟悉环境"},
-    {"zh": "团队聚餐社交", "en": "Team Bonding Activities",
-     "desc": "团建、聚餐等非正式场合的英语表达"},
-    {"zh": "出差归来闲谈", "en": "Back from Business Trip",
-     "desc": "出差回来跟同事聊见闻的地道说法"},
-]
+   # 轻松话题（3:1 比例，调节节奏）
+   {"zh": "办公室闲聊", "en": "Water Cooler Chat",
+     "desc": "茶水间、电梯里的日常闲聊话题和表达", "light": True},
+   {"zh": "入职第一天", "en": "First Day Onboarding",
+     "desc": "新公司第一天如何自我介绍、熟悉环境", "light": True},
+   {"zh": "团队聚餐社交", "en": "Team Bonding Activities",
+     "desc": "团建、聚餐等非正式场合的英语表达", "light": True},
+   {"zh": "出差归来闲谈", "en": "Back from Business Trip",
+     "desc": "出差回来跟同事聊见闻的地道说法", "light": True},
+   ]
 
 
 # ---------------------------------------------------------------------------
@@ -266,8 +266,31 @@ def build_prompt(scenario: dict[str, str]) -> list[dict[str, str]]:
     ]
 
 # ---------------------------------------------------------------------------
-# 后处理
-# ---------------------------------------------------------------------------
+ # 后处理
+ # ---------------------------------------------------------------------------
+ 
+def _build_weekly_summary_prompt() -> list[dict[str, str]]:
+    """构建周总结文章提示"""
+    user_msg = (
+        "请为微信公众号写一篇\"本周学习回顾\"类型的英语学习总结文章。\n\n"
+        "这是一篇周总结，目的是帮助读者回顾和巩固这一周学过的外企职场英语知识点。\n\n"
+        "写作要求：\n"
+        "1. 开头用一段话引出本周的主题和整体感受，像老朋友在聊天\n"
+        "2. 正文分 3-4 个板块，每个板块聚焦一个本周学过的实用表达或场景，用\"■\"加粗标题\n"
+        "3. 每个板块包含：一个地道例句 + 一个小场景 + 中文解析\n"
+        "4. 每个板块之间用流畅的过渡句连接，不要太生硬\n"
+        "5. 中间穿插一个\"本周最常用\"的表达投票推荐\n"
+        "6. 结尾做一个简单的\"下周预告\"增加期待感\n"
+        "7. 英文地道，中文口语化，像朋友在分享学习心得\n"
+        "8. 总字数 1000-1500 字，内容充实\n"
+        "9. 标题用「📅 本周回顾 | 一周外企英语表达精华」\n"
+        "10. 摘要写一句本周学习的核心收获"
+    )
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+       {"role": "user", "content": user_msg},
+    ]
+
 
 def _extract_title(md_text: str) -> str:
     for line in md_text.split("\n"):
@@ -307,7 +330,9 @@ def _extract_digest(md_text: str, max_len: int = 150) -> str:
 # 场景选择
 # ---------------------------------------------------------------------------
 
-def _pick_scenario(used_file: Path | None = None) -> dict[str, str]:
+def _pick_scenario(used_file: Path | None = None, pool: list[dict] | None = None) -> dict[str, str]:
+    if pool is None:
+        pool = WORKPLACE_SCENARIOS
     used: set[int] = set()
     if used_file and used_file.exists():
         try:
@@ -315,19 +340,22 @@ def _pick_scenario(used_file: Path | None = None) -> dict[str, str]:
             used = set(data.get("used_indices", []))
         except (json.JSONDecodeError, OSError):
             used = set()
-    available = [i for i in range(len(WORKPLACE_SCENARIOS)) if i not in used]
+    available = [i for i in range(len(pool)) if i not in used]
     if not available:
         used.clear()
-        available = list(range(len(WORKPLACE_SCENARIOS)))
+        available = list(range(len(pool)))
     pick = random.choice(available)
     used.add(pick)
     if used_file:
         used_file.parent.mkdir(parents=True, exist_ok=True)
-        used_file.write_text(
-            json.dumps({"used_indices": sorted(used)}, ensure_ascii=False),
-            encoding="utf-8",
-        )
-    return WORKPLACE_SCENARIOS[pick]
+        try:
+            used_file.write_text(
+                json.dumps({"used_indices": sorted(used)}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except (PermissionError, OSError):
+            pass
+    return pool[pick]
 
 # ---------------------------------------------------------------------------
 # 主流程
@@ -404,13 +432,19 @@ def main() -> None:
     parser.add_argument("--mock", action="store_true",
                         help="模拟模式：不调用 API，生成示例内容用于测试排版")
     parser.add_argument("--api-timeout", type=int, default=120, help="API 超时秒数")
+    parser.add_argument("--light", action="store_true",
+                        help="仅从轻松话题中选择（适合周六）")
+    parser.add_argument("--weekly-summary", action="store_true",
+                        help="生成周总结文章（适合周日）")
 
     args = parser.parse_args()
 
     if args.list_scenarios:
         print(f"\n📋 可用场景（共 {len(WORKPLACE_SCENARIOS)} 个）:\n")
         for i, sc in enumerate(WORKPLACE_SCENARIOS, 1):
-            print(f"  {i:2d}. {sc['zh']:12s} → {sc['en']:30s} ({sc['desc']})")
+            light_tag = " (轻松)" if sc.get("light") else ""
+            print(f"  {i:2d}. {sc['zh']:12s} → {sc['en']:30s} ({sc['desc']}){light_tag}")
+        print(f"\n   💡 周六自动选择轻松话题，周日自动生成周总结")
         return
 
     if not DEEPSEEK_API_KEY:
@@ -424,12 +458,43 @@ def main() -> None:
     used_file = PROJECT_DIR / ".scenarios_state.json"
     DRAFT_DIR.mkdir(parents=True, exist_ok=True)
 
-    if args.topic:
+    # ── 周总结模式（--weekly-summary）──
+    if args.weekly_summary:
+        print(f"\n📝 正在生成周总结文章...")
+        if args.mock:
+            content = _generate_mock_content({"zh": "本周回顾", "en": "Weekly Review", "desc": ""})
+        else:
+            messages = _build_weekly_summary_prompt()
+            content = _call_deepseek(messages, timeout=args.api_timeout)
+        if not content:
+            print("\n❌ 内容生成失败。请检查 API Key 和网络。")
+            sys.exit(1)
+        title = _extract_title(content) or "Weekly Review"
+        filename = args.output or _generate_filename(title)
+        output_path = Path(filename)
+        if not output_path.is_absolute():
+            output_path = DRAFT_DIR / output_path.name
+        output_path.write_text(content, encoding="utf-8")
+        print(f"\n✅ 周总结已生成!")
+        print(f"   文件: {output_path}")
+        print(f"   标题: {title}")
+        digest = _extract_digest(content)
+        print(f"   摘要: {digest[:80]}...")
+        print(f"\n🚀 下一步: 用 publish.py 发布")
+        print(f"   python3 scripts/publish.py \"{output_path}\"")
+        return
+
+    # ── 场景选择 ──
+    if args.light:
+        light_pool = [sc for sc in WORKPLACE_SCENARIOS if sc.get("light")]
+        if not light_pool:
+            print("❌ 没有找到轻松话题")
+            sys.exit(1)
+        light_used_file = PROJECT_DIR / ".scenarios_state_light.json"
+        scenario = _pick_scenario(light_used_file, pool=light_pool)
+    elif args.topic:
         keyword = args.topic.lower()
-        matched = [
-            sc for sc in WORKPLACE_SCENARIOS
-            if keyword in sc["zh"].lower() or keyword in sc["en"].lower()
-        ]
+        matched = [sc for sc in WORKPLACE_SCENARIOS if keyword in sc["zh"].lower() or keyword in sc["en"].lower()]
         if not matched:
             print(f"❌ 未找到匹配场景: {args.topic}")
             print("   使用 --list-scenarios 查看所有场景")

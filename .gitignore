@@ -2,6 +2,7 @@
 .env
 .env.local
 .scenarios_state.json
+.scenarios_state_light.json
 .venv/
 .venv
 

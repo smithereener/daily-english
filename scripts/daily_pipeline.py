@@ -18,6 +18,7 @@ Daily English — 每日自动发布管线
 
 from __future__ import annotations
 
+import datetime
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +27,16 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = PROJECT_DIR / "scripts"
 PYTHON = sys.executable or "python3"
+
+
+def _today_type() -> str:
+    """根据星期几返回发布类型：weekday / saturday / sunday"""
+    weekday = datetime.datetime.now().weekday()  # 0=Mon, 6=Sun
+    if weekday == 5:
+        return "saturday"
+    elif weekday == 6:
+        return "sunday"
+    return "weekday"
 
 
 def run_script(script_name: str, *args: str) -> int:
@@ -65,6 +76,16 @@ def main() -> None:
     print("  🌅 Daily English — 每日发布管线")
     print("=" * 50)
 
+    # 根据星期几自动选择内容类型
+    day_type = _today_type()
+    if day_type == "saturday":
+        print("  📅 周六模式：轻松话题")
+    elif day_type == "sunday":
+        print("  📅 周日模式：周总结")
+    else:
+        print(f"  📅 {['周一','周二','周三','周四','周五','周六','周日'][datetime.datetime.now().weekday()]}模式：职场话题")
+    print()
+
     # 阶段 1: 生成内容
     if args.publish_only:
         draft_path = Path(args.publish_only)
@@ -79,8 +100,12 @@ def main() -> None:
         gen_args = []
         if args.topic:
             gen_args += ["--topic", args.topic]
-        # Mock mode: generate sample content without API call
-        gen_args += ["--mock"]
+        if day_type == "saturday":
+            gen_args += ["--light"]
+        elif day_type == "sunday":
+            gen_args += ["--weekly-summary"]
+        if args.dry_run:
+            gen_args += ["--mock"]
 
         ret = run_script("generate.py", *gen_args)
         if ret != 0:
